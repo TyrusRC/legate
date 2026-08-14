@@ -22,3 +22,12 @@ def test_worktree_isolates_and_collects_diff(tmp_path):
     assert "two" in diff
     # original repo untouched
     assert (repo / "a.txt").read_text() == "one\n"
+
+
+def test_collect_diff_includes_new_untracked_files(tmp_path):
+    repo = _init_repo(tmp_path)
+    with worktree(repo) as wt:
+        (wt / "solution.py").write_text("def add(a, b): return a + b\n")
+        diff = collect_diff(wt)
+    assert "solution.py" in diff
+    assert "def add" in diff

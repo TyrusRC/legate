@@ -28,7 +28,15 @@ def worktree(base_repo: Path, base_ref: str = "HEAD"):
 
 
 def collect_diff(worktree_path: Path) -> str:
-    """Return `git diff` of uncommitted changes in a worktree."""
+    """Return `git diff` of all uncommitted changes in a worktree, INCLUDING
+    newly created (untracked) files. `git add -N` records intent-to-add for new
+    files so `git diff` renders them; the worktree is throwaway so mutating its
+    index is harmless. Without this, a brand-new solution file shows no diff.
+    """
+    subprocess.run(
+        ["git", "-C", str(worktree_path), "add", "-N", "."],
+        capture_output=True,
+    )
     return subprocess.run(
         ["git", "-C", str(worktree_path), "diff"],
         check=True,

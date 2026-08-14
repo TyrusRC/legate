@@ -1,0 +1,1 @@
+{"id": "mini/py", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "test_solution.py"]}

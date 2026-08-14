@@ -1,0 +1,9 @@
+version: "1.0.0"
+title: "legate-base"
+description: "Base recipe: developer editor only, no external MCP yet."
+extensions:
+  - type: builtin
+    name: developer
+    # Allowlist restricts what the model can even see/call — reliable find/replace
+    # editing (`edit`) plus the minimum to navigate. No external MCP tools yet.
+    available_tools: ["edit", "write", "shell", "read_image", "tree"]

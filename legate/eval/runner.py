@@ -9,6 +9,7 @@ outside the local model's envelope and are reported as such, not hidden.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,27 +41,44 @@ def discover(problems_root: Path) -> list[Path]:
 
 
 def run_suite(cfg, problems_root: Path, best_of: int = 1, max_turns: int = 40,
-              solve_fn=None) -> SuiteResult:
+              solve_fn=None, checkpoint: Path | None = None) -> SuiteResult:
     """Run each discovered problem and aggregate resolve rate by language.
 
     `solve_fn(cfg, problem_dir, best_of, max_turns) -> dict` is injectable so the
     aggregation is testable without a live model. Default wires the real solver.
+
+    If `checkpoint` is given, each problem's result is appended (JSONL) as soon as
+    it completes, and problems already in the checkpoint are SKIPPED — so an
+    interrupted run loses nothing and can resume where it left off.
     """
     if solve_fn is None:
         solve_fn = _default_solve
     from legate.eval.polyglot import load_problem
 
+    done: dict[str, dict] = {}
+    if checkpoint and Path(checkpoint).exists():
+        for line in Path(checkpoint).read_text().splitlines():
+            if line.strip():
+                rec = json.loads(line)
+                done[rec["dir"]] = rec
+
     dirs = discover(problems_root)
     res = SuiteResult(total=len(dirs), passed=0)
     for d in dirs:
-        lang = load_problem(d).language
-        out = solve_fn(cfg, d, best_of, max_turns)
-        ok = bool(out.get("passed"))
+        rec = done.get(str(d))
+        if rec is None:
+            lang = load_problem(d).language
+            out = solve_fn(cfg, d, best_of, max_turns)
+            rec = {"dir": str(d), "language": lang, "passed": bool(out.get("passed")),
+                   "evidence": out.get("evidence", "")}
+            if checkpoint:
+                with Path(checkpoint).open("a") as fh:
+                    fh.write(json.dumps(rec) + "\n")
+        ok = bool(rec["passed"])
         res.passed += int(ok)
-        p, t = res.by_language.get(lang, (0, 0))
-        res.by_language[lang] = (p + int(ok), t + 1)
-        res.problems.append({"dir": str(d), "language": lang, "passed": ok,
-                             "evidence": out.get("evidence", "")})
+        p, t = res.by_language.get(rec["language"], (0, 0))
+        res.by_language[rec["language"]] = (p + int(ok), t + 1)
+        res.problems.append(rec)
     return res
 
 

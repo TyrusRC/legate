@@ -39,6 +39,29 @@ def test_run_suite_aggregates_by_language_and_pct_of_opus(tmp_path):
     assert abs(res.pct_of_opus - (2 / 3) / OPUS5_POLYGLOT_RESOLVE) < 1e-9
 
 
+def test_checkpoint_persists_and_resume_skips_done(tmp_path):
+    _mk_problem(tmp_path, "a", "python")
+    _mk_problem(tmp_path, "b", "python")
+    ckpt = tmp_path / "ckpt.jsonl"
+
+    calls = []
+
+    def solve1(cfg, d, best_of, max_turns):
+        calls.append(str(d))
+        return {"passed": True, "evidence": "x"}
+
+    r1 = run_suite(cfg=None, problems_root=tmp_path, solve_fn=solve1, checkpoint=ckpt)
+    assert r1.passed == 2 and len(calls) == 2
+    assert ckpt.exists() and len(ckpt.read_text().splitlines()) == 2
+
+    # resume: nothing should be re-solved; a solver that explodes proves it
+    def boom(cfg, d, best_of, max_turns):
+        raise AssertionError("should not re-solve a checkpointed problem")
+
+    r2 = run_suite(cfg=None, problems_root=tmp_path, solve_fn=boom, checkpoint=ckpt)
+    assert r2.passed == 2 and r2.total == 2   # rebuilt entirely from checkpoint
+
+
 def test_format_report_flags_target(tmp_path):
     _mk_problem(tmp_path, "a", "python")
     res = run_suite(cfg=None, problems_root=tmp_path,

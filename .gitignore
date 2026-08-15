@@ -7,3 +7,5 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 docs/skeleton-run.md
+docs/benchmark-checkpoint.jsonl
+docs/benchmark-results.md

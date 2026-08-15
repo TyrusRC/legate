@@ -4,8 +4,9 @@ A local coding/agent harness that drives a small local model (via [Goose](https:
 and llama.cpp) to work at a useful fraction of a frontier subscription agent — self-hosted, no subscription,
 uncensored-capable. Designed to also drive MCP servers such as [Praetor](https://github.com/TyrusRC/praetor).
 
-**Status:** MVP. Validated on an RTX 3060 12GB (WSL2): Qwen3-Coder-30B-A3B Q4 serves at ~27 tok/s with
-reliable native tool-calling; Praetor's 390-tool MCP surface enumerates and is routable. See
+**Status:** MVP, proven end-to-end. On an RTX 3060 12GB (WSL2), Qwen3-Coder-30B-A3B Q4 serves at ~27 tok/s
+with reliable native tool-calling (5/5) and **solved the `wordy` polyglot problem — all 25 tests — in one
+40-turn run (~6 min)**. Praetor's 390-tool MCP surface enumerates and routes to a ≤15-tool working set. See
 [`docs/gap-analysis.md`](docs/gap-analysis.md) for an honest comparison to Claude Code + Opus 5.
 
 ## What it is

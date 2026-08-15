@@ -5,6 +5,7 @@ from pathlib import Path
 from legate.bestofn import best_of_n
 from legate.config import Config, load_dotenv
 from legate.eval.polyglot import load_problem, run_tests
+from legate.eval.runner import format_report, run_suite
 from legate.goose import run_goose
 from legate.hardware import detect
 from legate.models import recommend
@@ -96,12 +97,22 @@ def main() -> int:
     msub = mp.add_subparsers(dest="models_cmd", required=True)
     msub.add_parser("recommend", help="Rank models by fit for this machine")
 
+    ep = sub.add_parser("eval", help="Run the polyglot suite; report % of Opus 5")
+    ep.add_argument("problems_root", nargs="?", default="problems")
+    ep.add_argument("--best-of", type=int, default=1, metavar="N")
+    ep.add_argument("--max-turns", type=int, default=40)
+
     args = ap.parse_args()
 
     if args.cmd == "doctor":
         return cmd_doctor()
     if args.cmd == "models":
         return cmd_models_recommend()
+    if args.cmd == "eval":
+        res = run_suite(Config.from_env(), Path(args.problems_root),
+                        best_of=args.best_of, max_turns=args.max_turns)
+        print(format_report(res))
+        return 0 if res.passed == res.total else 1
 
     cfg = Config.from_env()
     if args.best_of > 1:

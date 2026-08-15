@@ -26,9 +26,13 @@ task's tests. The novel work lives above Goose:
 
 ## Setup
 ```bash
-cp .env.example .env      # then edit LEGATE_MODEL_PATH / LEGATE_LLAMA_BIN
+bash scripts/setup.sh     # installs deps + writes .env with auto-detected paths
 bash scripts/serve.sh &   # serve the model (llama-server, KV-quant, -ncmoe)
 ```
+`setup.sh` is idempotent: it installs Python deps (`uv sync`), creates `.env` from
+`.env.example`, and auto-detects `llama-server`, the model GGUF, and Praetor —
+filling only blank/placeholder values. Anything it can't find, it tells you to set
+in `.env`. (Manual path: `cp .env.example .env` and edit `LEGATE_*`.)
 
 ## Use
 ```bash

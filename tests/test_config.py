@@ -3,7 +3,14 @@ from pathlib import Path
 from legate.config import Config, load_dotenv
 
 
-def test_default_config_has_local_endpoint():
+def _clear_legate_env(monkeypatch):
+    for k in ("LEGATE_ENDPOINT", "LEGATE_MODEL", "LEGATE_MODEL_PATH",
+              "LEGATE_GOOSE_MODE", "LEGATE_REPO_ROOT", "LEGATE_WORK_ROOT"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_default_config_has_local_endpoint(monkeypatch):
+    _clear_legate_env(monkeypatch)  # hermetic: test the defaults, not ambient .env
     cfg = Config.default()
     assert cfg.endpoint == "http://127.0.0.1:8080/v1"
     assert cfg.model == "qwen3-coder"
@@ -24,7 +31,8 @@ def test_from_env_reads_overrides(monkeypatch):
 def test_load_dotenv_does_not_override_real_env(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text('LEGATE_MODEL=from-file\nLEGATE_ENDPOINT="http://file:1/v1"\n')
-    monkeypatch.setenv("LEGATE_MODEL", "from-real-env")  # already set wins
+    monkeypatch.setenv("LEGATE_MODEL", "from-real-env")   # already set wins
+    monkeypatch.delenv("LEGATE_ENDPOINT", raising=False)  # unset -> should be filled
     load_dotenv(env_file)
     import os
     assert os.environ["LEGATE_MODEL"] == "from-real-env"

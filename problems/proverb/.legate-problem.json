@@ -1,0 +1,1 @@
+{"id": "python/proverb", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "proverb_test.py"], "protect": ["proverb_test.py"]}

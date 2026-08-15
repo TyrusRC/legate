@@ -1,0 +1,1 @@
+{"id": "python/list-ops", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "list_ops_test.py"], "protect": ["list_ops_test.py"]}

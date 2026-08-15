@@ -1,1 +1,1 @@
-{"id": "python/wordy", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "wordy_test.py"]}
+{"id": "python/wordy", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "wordy_test.py"], "protect": ["wordy_test.py"]}

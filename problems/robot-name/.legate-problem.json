@@ -1,0 +1,1 @@
+{"id": "python/robot-name", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "robot_name_test.py"], "protect": ["robot_name_test.py"]}

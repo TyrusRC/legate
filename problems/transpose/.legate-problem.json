@@ -1,0 +1,1 @@
+{"id": "python/transpose", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "transpose_test.py"], "protect": ["transpose_test.py"]}

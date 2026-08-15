@@ -1,0 +1,1 @@
+{"id": "python/grade-school", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "grade_school_test.py"], "protect": ["grade_school_test.py"]}

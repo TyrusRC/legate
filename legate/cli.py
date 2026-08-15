@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -27,6 +28,26 @@ def cmd_doctor() -> int:
     print(f"  WSL2       : {'yes' if hw.is_wsl2 else 'no'}")
     if hw.vram_total_mib is None:
         print("\n  No NVIDIA GPU found — v1 targets single-GPU serving; CPU-only is out of scope.")
+    return 0
+
+
+def cmd_pentest_plan(phase: str, query: str | None, task: str | None) -> int:
+    """Plan a Praetor engagement: route its 390 tools down to a phase working set
+    and emit the mounting recipe. Praetor location comes from LEGATE_PRAETOR_* env."""
+    from legate.pentest import plan_engagement
+    cmd = os.environ.get("LEGATE_PRAETOR_CMD")
+    if not cmd:
+        print("set LEGATE_PRAETOR_CMD (path to Praetor's MCP python) and optionally "
+              "LEGATE_PRAETOR_ARGS / LEGATE_PRAETOR_CWD in .env", file=sys.stderr)
+        return 2
+    args = os.environ.get("LEGATE_PRAETOR_ARGS", "-m burpsuite_mcp").split()
+    cwd = os.environ.get("LEGATE_PRAETOR_CWD")
+    plan = plan_engagement(cmd, args, phase=phase, query=query, task=task, praetor_cwd=cwd)
+    print(f"# engagement plan: phase={phase} query={query!r}")
+    print(f"# routed {len(plan.selected_tools)} of {plan.total_tools} Praetor tools")
+    print("selected: " + ", ".join(plan.selected_tools))
+    print("\n--- recipe ---")
+    print(plan.recipe_yaml(), end="")
     return 0
 
 
@@ -102,12 +123,22 @@ def main() -> int:
     ep.add_argument("--best-of", type=int, default=1, metavar="N")
     ep.add_argument("--max-turns", type=int, default=40)
 
+    pp = sub.add_parser("pentest", help="Drive Praetor (MCP)")
+    ppsub = pp.add_subparsers(dest="pentest_cmd", required=True)
+    plan = ppsub.add_parser("plan", help="Route Praetor tools + emit the mounting recipe")
+    plan.add_argument("--phase", default="recon",
+                      choices=["recon", "scan", "exploit", "post", "report"])
+    plan.add_argument("--query", default=None, help="Cross-phase tool search (e.g. 'sql injection')")
+    plan.add_argument("--task", default=None, help="Task prompt to embed in the recipe")
+
     args = ap.parse_args()
 
     if args.cmd == "doctor":
         return cmd_doctor()
     if args.cmd == "models":
         return cmd_models_recommend()
+    if args.cmd == "pentest":
+        return cmd_pentest_plan(args.phase, args.query, args.task)
     if args.cmd == "eval":
         res = run_suite(Config.from_env(), Path(args.problems_root),
                         best_of=args.best_of, max_turns=args.max_turns)

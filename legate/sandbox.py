@@ -11,9 +11,12 @@ must reach a target opts in).
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
+
+_SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 class SandboxUnavailable(RuntimeError):
@@ -36,6 +39,13 @@ def wrap(argv: list[str], workdir: str | Path, allow_net: bool = False,
                 "no sandbox (bwrap) available; refusing to run untrusted code unwrapped")
         return argv
 
+    # --clearenv drops the host environment so untrusted code can't read secrets
+    # (API keys, .env values) that the harness loaded into its own env. We re-add
+    # only what a test runner needs.
+    # NOTE (ceiling): `--ro-bind / /` still exposes host files for *reading*
+    # (e.g. ~/.ssh, project .env) — writes are blocked and the process is off-net
+    # by default, but a least-privilege upgrade is to bind only the interpreter,
+    # stdlib, and workdir instead of all of /.
     bwrap = [
         "bwrap",
         "--ro-bind", "/", "/",            # read-only root...
@@ -44,6 +54,12 @@ def wrap(argv: list[str], workdir: str | Path, allow_net: bool = False,
         "--tmpfs", "/tmp",                # private /tmp...
         "--bind", workdir, workdir,       # ...but the writable work dir wins, even
         "--chdir", workdir,               #    when it lives under /tmp (bind after tmpfs)
+        "--clearenv",
+        # PATH is passed through (not a secret) so the caller's venv `python`/pytest
+        # still resolves; everything else (API keys etc.) is dropped by --clearenv.
+        "--setenv", "PATH", os.environ.get("PATH", _SAFE_PATH),
+        "--setenv", "HOME", workdir,
+        "--setenv", "LANG", "C.UTF-8",
         "--unshare-pid",
         "--die-with-parent",
         "--new-session",

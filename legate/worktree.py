@@ -12,11 +12,15 @@ def worktree(base_repo: Path, base_ref: str = "HEAD"):
     cheap — this is the isolation boundary for best-of-N candidate runs.
     """
     tmp = Path(tempfile.mkdtemp(prefix="legate-wt-"))
-    subprocess.run(
-        ["git", "-C", str(base_repo), "worktree", "add", "--detach", str(tmp), base_ref],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "-C", str(base_repo), "worktree", "add", "--detach", str(tmp), base_ref],
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)   # don't leak the temp dir on add failure
+        raise
     try:
         yield tmp
     finally:

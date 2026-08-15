@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from legate.config import Config
-from legate.eval.polyglot import load_problem, run_tests
+from legate.eval.polyglot import load_problem, restore_protected, run_tests
 from legate.goose import run_goose
 from legate.worktree import collect_diff, worktree
 
@@ -56,8 +56,9 @@ def _run_one(cfg: Config, repo_root: Path, rel: Path, idx: int, task_text: str,
         wt_pdir = wt / rel
         res = run_goose(cfg, wt_pdir, task_text, max_turns)
         problem = load_problem(wt_pdir)
-        tr = run_tests(problem, wt_pdir, sandboxed=True)  # model code — confine it
-        diff = collect_diff(wt)
+        restore_protected(problem, wt_pdir)              # no test-tampering
+        diff = collect_diff(wt)                           # before tests, so .pyc etc.
+        tr = run_tests(problem, wt_pdir, sandboxed=True)  #   don't pollute diff_len
     return Candidate(idx=idx, diff=diff, passed=tr.passed, n_passed=tr.n_passed,
                      n_total=tr.n_total, output=tr.output, error=res.error)
 
@@ -95,12 +96,10 @@ def best_of_n(cfg: Config, problem_dir: Path, n: int = 6, max_turns: int = 30,
         rep = _run_one(cfg, repo_root, rel, n + rounds - 1, repair_task, max_turns)
         rep.repaired = True
         candidates.append(rep)
-        ranked = rank(candidates)
-        new_best = ranked[0]
-        if new_best.passed or new_best.n_passed > best.passed:  # strictly better
-            best = new_best
-        else:
-            best = new_best  # keep best-ranked regardless; loop guard is rounds
+        prev_passed = best.n_passed
+        best = rank(candidates)[0]                 # appending can only keep/raise the top
+        if not best.passed and best.n_passed <= prev_passed:
+            break                                  # repair didn't improve — stop (Self-Debug gate)
 
     evidence = (f"passes {best.n_passed}/{best.n_total} tests"
                 + (" (all)" if best.passed else "")

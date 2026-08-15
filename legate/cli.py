@@ -5,7 +5,7 @@ from pathlib import Path
 
 from legate.bestofn import best_of_n
 from legate.config import Config, load_dotenv
-from legate.eval.polyglot import load_problem, run_tests
+from legate.eval.polyglot import load_problem, restore_protected, run_tests
 from legate.eval.runner import format_report, run_suite
 from legate.goose import run_goose
 from legate.hardware import detect
@@ -87,8 +87,9 @@ def solve(cfg: Config, problem_dir: Path, max_turns: int = 30) -> dict:
         wt_problem_dir = wt / rel
         result = run_goose(cfg, wt_problem_dir, task_text, max_turns)
         wt_problem = load_problem(wt_problem_dir)
+        restore_protected(wt_problem, wt_problem_dir)  # no test-tampering
+        diff = collect_diff(wt)                          # before tests (avoid .pyc noise)
         test_res = run_tests(wt_problem, wt_problem_dir, sandboxed=True)
-        diff = collect_diff(wt)
 
     return {
         "problem": problem.id,

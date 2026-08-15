@@ -41,10 +41,26 @@ def test_render_recipe_is_parseable_yaml_shape():
     rec = build_recipe("/venv/python", ["-m", "burpsuite_mcp"], "scan",
                        ["search_tools", "run_nuclei"])
     text = render_recipe(rec)
-    assert 'type: stdio' in text
+    assert '"stdio"' in text
     assert 'cmd: "/venv/python"' in text
     # inline lists must be valid JSON (a valid YAML flow sequence)
     for line in text.splitlines():
         if "available_tools:" in line or line.strip().startswith("args:"):
             payload = line.split(":", 1)[1].strip()
             json.loads(payload)  # raises if malformed
+
+
+def test_render_recipe_escapes_nasty_scalars():
+    # regression: backslashes (Windows path), quotes, and a prompt whose first
+    # line is indented + multiline must all produce valid YAML. Every scalar
+    # value is JSON — validate each renders as parseable JSON (JSON ⊂ YAML).
+    from legate.recipe import build_dev_recipe
+    rec = build_dev_recipe('  indented first line\nsecond "quoted" line\npath C:\\tmp\\x',
+                           tools=['edit'])
+    text = render_recipe(rec)
+    for line in text.splitlines():
+        stripped = line.strip()
+        # scalar lines are `key: <json>`; skip structural/list lines
+        if stripped.startswith(("version:", "title:", "description:", "cmd:",
+                                "cwd:", "name:", "type:", "prompt:")):
+            json.loads(stripped.split(":", 1)[1].strip())  # raises if malformed

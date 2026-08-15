@@ -122,7 +122,7 @@ class Router:
 
     def search(self, query: str, k: int = 5) -> list[Tool]:
         """Top-k tools by BM25 over name+description (cross-phase)."""
-        qt = tokenize(query)
+        qt = list(dict.fromkeys(tokenize(query)))  # dedupe (acronym bridging can repeat terms)
         scored = [(self._score(qt, t), t) for t in self.tools]
         scored = [(s, t) for s, t in scored if s > 0]
         scored.sort(key=lambda x: (-x[0], x[1].name))

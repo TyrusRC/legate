@@ -35,7 +35,8 @@ def parse_stream_json(lines: Iterable[str]) -> GooseResult:
             continue
         etype = evt.get("type")
         if etype == "message":
-            result.messages.append(evt["message"])
+            if "message" in evt:  # tolerate a message event missing the field
+                result.messages.append(evt["message"])
         elif etype == "error":
             result.error = evt.get("error", "unknown error")
         elif etype == "complete":

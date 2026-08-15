@@ -52,13 +52,17 @@ def _detect_gpu() -> tuple[str | None, int | None, int | None]:
     parts = [p.strip() for p in first.split(",")]
     if len(parts) < 3:
         return None, None, None
-    try:
-        total = int(parts[0])
-        free = int(parts[1])
-    except ValueError:
-        return None, None, None
-    name = parts[2] or None
-    return name, total, free
+
+    def _int(v):
+        try:
+            return int(v)
+        except ValueError:
+            return None  # e.g. '[N/A]' on MIG/vGPU/WSL2 — don't discard the card
+
+    total = _int(parts[0])
+    if total is None:
+        return None, None, None       # no usable total → treat as no GPU
+    return (parts[2] or None), total, _int(parts[1])
 
 
 def _meminfo_mib() -> tuple[int, int]:

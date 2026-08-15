@@ -66,29 +66,32 @@ def build_recipe(praetor_cmd: str, praetor_args: list[str], phase: str,
 
 
 def render_recipe(recipe: dict) -> str:
-    """Emit YAML for a recipe dict. Inline lists use JSON (a valid YAML flow
-    sequence) to sidestep a yaml dependency; the shape here is fixed and shallow."""
+    """Emit YAML for a recipe dict. Every scalar and list is serialized with
+    json.dumps — JSON is a subset of YAML, so this yields valid YAML with correct
+    escaping for quotes, backslashes (e.g. Windows paths), and newlines (the task
+    prompt), sidestepping both a yaml dependency and hand-quoting bugs."""
+    def s(v):  # JSON scalar == valid, fully-escaped YAML scalar
+        return json.dumps(v)
+
     lines = [
-        f'version: "{recipe["version"]}"',
-        f'title: "{recipe["title"]}"',
-        f'description: "{recipe["description"]}"',
+        f"version: {s(recipe['version'])}",
+        f"title: {s(recipe['title'])}",
+        f"description: {s(recipe['description'])}",
         "extensions:",
     ]
     for e in recipe["extensions"]:
-        lines.append(f'  - type: {e["type"]}')
-        lines.append(f'    name: {e["name"]}')
+        lines.append(f"  - type: {s(e['type'])}")
+        lines.append(f"    name: {s(e['name'])}")
         if "cmd" in e:
-            lines.append(f'    cmd: "{e["cmd"]}"')
+            lines.append(f"    cmd: {s(e['cmd'])}")
         if "args" in e:
-            lines.append(f'    args: {json.dumps(e["args"])}')
+            lines.append(f"    args: {json.dumps(e['args'])}")
         if "cwd" in e:
-            lines.append(f'    cwd: "{e["cwd"]}"')
+            lines.append(f"    cwd: {s(e['cwd'])}")
         if "timeout" in e:
-            lines.append(f'    timeout: {e["timeout"]}')
+            lines.append(f"    timeout: {int(e['timeout'])}")
         if "available_tools" in e:
-            lines.append(f'    available_tools: {json.dumps(e["available_tools"])}')
+            lines.append(f"    available_tools: {json.dumps(e['available_tools'])}")
     if recipe.get("prompt"):
-        lines.append("prompt: |")
-        for pl in recipe["prompt"].splitlines() or [""]:
-            lines.append(f"  {pl}")
+        lines.append(f"prompt: {s(recipe['prompt'])}")
     return "\n".join(lines) + "\n"

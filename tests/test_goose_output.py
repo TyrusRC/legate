@@ -18,3 +18,12 @@ def test_ignores_blank_and_malformed_lines():
     r = parse_stream_json(["", "not json", '{"type":"complete","total_tokens":1,"cost_usd":0}'])
     assert r.total_tokens == 1
     assert r.error is None
+
+
+def test_message_event_without_message_key_does_not_crash():
+    # regression: a well-formed message event lacking the 'message' field must
+    # not raise KeyError and abort the whole solve.
+    r = parse_stream_json(['{"type":"message"}',
+                           '{"type":"complete","total_tokens":7,"cost_usd":0}'])
+    assert r.messages == []
+    assert r.total_tokens == 7

@@ -6,14 +6,39 @@ from legate.goose import build_goose_argv
 
 def test_build_goose_argv_has_required_flags():
     cfg = Config.default()
-    argv = build_goose_argv(
-        cfg, task_text="fix the bug", recipe=Path("recipes/base.yaml"), max_turns=30
-    )
+    argv = build_goose_argv(cfg, recipe_path=Path("/tmp/r.yaml"), max_turns=30)
     assert argv[:2] == ["goose", "run"]
     assert "--no-session" in argv
     assert "--output-format" in argv and "stream-json" in argv
     assert "--max-turns" in argv and "30" in argv
     assert "--provider" in argv and "openai" in argv
     assert "--model" in argv and "qwen3-coder" in argv
-    assert "--recipe" in argv and "recipes/base.yaml" in argv
-    assert argv[-2:] == ["-t", "fix the bug"]
+    assert "--recipe" in argv and "/tmp/r.yaml" in argv
+    # task rides in the recipe prompt now, not via -t (Goose forbids both)
+    assert "-t" not in argv and "--text" not in argv
+
+
+def test_run_goose_generates_prompt_recipe(tmp_path, monkeypatch):
+    """run_goose writes a recipe carrying the task prompt + tool allowlist, and
+    passes it via --recipe (no -t)."""
+    import legate.goose as g
+    captured = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(argv, cwd, env, capture_output, text):
+        # the recipe file must exist and contain the task at call time
+        rpath = argv[argv.index("--recipe") + 1]
+        captured["recipe"] = Path(rpath).read_text()
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(g.subprocess, "run", fake_run)
+    cfg = Config.default()
+    g.run_goose(cfg, tmp_path, "solve the wordy problem", max_turns=5)
+    assert "solve the wordy problem" in captured["recipe"]
+    assert "developer" in captured["recipe"]
+    assert "-t" not in captured["argv"]

@@ -2,6 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from legate.bestofn import best_of_n
 from legate.config import Config, load_dotenv
 from legate.eval.polyglot import load_problem, run_tests
 from legate.goose import run_goose
@@ -41,8 +42,6 @@ def cmd_models_recommend() -> int:
     print("Pick a slot by setting LEGATE_MODEL_PATH in .env; MoE -ncmoe is auto-probed at serve time.")
     return 0
 
-RECIPE = Path(__file__).resolve().parent.parent / "recipes" / "base.yaml"
-
 
 def solve(cfg: Config, problem_dir: Path, max_turns: int = 30) -> dict:
     """Solve one problem end-to-end in an isolated worktree and report the outcome.
@@ -64,9 +63,9 @@ def solve(cfg: Config, problem_dir: Path, max_turns: int = 30) -> dict:
 
     with worktree(repo_root) as wt:
         wt_problem_dir = wt / rel
-        result = run_goose(cfg, wt_problem_dir, task_text, RECIPE, max_turns)
+        result = run_goose(cfg, wt_problem_dir, task_text, max_turns)
         wt_problem = load_problem(wt_problem_dir)
-        test_res = run_tests(wt_problem, wt_problem_dir)
+        test_res = run_tests(wt_problem, wt_problem_dir, sandboxed=True)
         diff = collect_diff(wt)
 
     return {
@@ -86,6 +85,10 @@ def main() -> int:
     sp = sub.add_parser("solve", help="Solve one problem end-to-end")
     sp.add_argument("problem_dir")
     sp.add_argument("--max-turns", type=int, default=30)
+    sp.add_argument("--best-of", type=int, default=1, metavar="N",
+                    help="Generate N candidates, ground on tests, pick the best (default 1)")
+    sp.add_argument("--repair-rounds", type=int, default=1,
+                    help="Bounded Self-Debug repair rounds when best-of-N still fails")
 
     sub.add_parser("doctor", help="Detect and report this machine's hardware")
 
@@ -100,7 +103,12 @@ def main() -> int:
     if args.cmd == "models":
         return cmd_models_recommend()
 
-    out = solve(Config.from_env(), Path(args.problem_dir), args.max_turns)
+    cfg = Config.from_env()
+    if args.best_of > 1:
+        out = best_of_n(cfg, Path(args.problem_dir), n=args.best_of,
+                        max_turns=args.max_turns, repair_rounds=args.repair_rounds)
+    else:
+        out = solve(cfg, Path(args.problem_dir), args.max_turns)
     print(out)
     return 0 if out["passed"] else 1
 

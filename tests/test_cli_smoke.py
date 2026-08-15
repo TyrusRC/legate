@@ -29,7 +29,7 @@ def test_solve_reports_pass_when_goose_writes_correct_solution(tmp_path):
     cfg = Config.default()
     cfg.repo_root = src
 
-    def fake_run_goose(cfg, cwd, task_text, recipe, max_turns=30):
+    def fake_run_goose(cfg, cwd, task_text, max_turns=30):
         (Path(cwd) / "solution.py").write_text("def add(a, b): return a + b\n")
         return GooseResult(messages=[{"role": "assistant", "content": "done"}], total_tokens=10)
 
@@ -49,7 +49,7 @@ def test_solve_reports_fail_when_solution_wrong(tmp_path):
     cfg = Config.default()
     cfg.repo_root = src
 
-    def fake_run_goose(cfg, cwd, task_text, recipe, max_turns=30):
+    def fake_run_goose(cfg, cwd, task_text, max_turns=30):
         (Path(cwd) / "solution.py").write_text("def add(a, b): return 0\n")
         return GooseResult(total_tokens=5)
 

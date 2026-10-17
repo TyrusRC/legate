@@ -17,6 +17,22 @@ class GooseResult:
     cost_usd: float = 0.0
     error: str | None = None
 
+    @property
+    def final_text(self) -> str:
+        """The last assistant text emitted. Goose message content is a list of
+        parts; we join the text parts of the last message that has any."""
+        for msg in reversed(self.messages):
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            if isinstance(content, list):
+                texts = [p.get("text", "") for p in content
+                         if isinstance(p, dict) and p.get("type") == "text"]
+                joined = "\n".join(t for t in texts if t).strip()
+                if joined:
+                    return joined
+        return ""
+
 
 def parse_stream_json(lines: Iterable[str]) -> GooseResult:
     """Parse Goose stream-json (one JSON object per line) into a GooseResult.

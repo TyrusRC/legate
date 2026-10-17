@@ -1,1 +1,0 @@
-{"id": "python/phone-number", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "phone_number_test.py"], "protect": ["phone_number_test.py"]}

@@ -1,1 +1,0 @@
-{"id": "python/bottle-song", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "bottle_song_test.py"], "protect": ["bottle_song_test.py"]}

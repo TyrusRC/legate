@@ -1,1 +1,0 @@
-{"id": "python/variable-length-quantity", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "variable_length_quantity_test.py"], "protect": ["variable_length_quantity_test.py"]}

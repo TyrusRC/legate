@@ -1,10 +1,11 @@
 """Two-stage tool selection so a small local model can drive a huge MCP surface.
 
-Praetor exposes ~390 tools; a 3B-active model cliffs above ~15 in context. We
-(1) group tools by pentest phase and surface only the current phase's group,
-plus (2) a `search_tools` meta-tool backed by lexical **BM25** over tool
-name+description for cross-phase pivots. BM25, not embeddings: security jargon
-is exact-match ("sqli", "jwt", "ssrf"), and it costs zero VRAM.
+Praetor exposes ~390 tools; a 3B-active model cliffs above ~15 in context. For a
+given phase/query we surface a capped working set: the phase's tool group, topped
+up by lexical **BM25** hits over tool name+description for the current query
+(cross-phase relevance). BM25, not embeddings: security jargon is exact-match
+("sqli", "jwt", "ssrf"), and it costs zero VRAM. The selection is baked into the
+Goose recipe at mount time — it is not a live tool the model calls.
 
 Pure stdlib — no numpy, no model. The router output is capped so the surfaced
 schema stays within the small model's reliable working set.
@@ -16,18 +17,27 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-# Ordered pentest phases + the lexical cues that map a tool into one. A tool can
-# match several; assign_phase picks the earliest strong match, else "general".
+# Ordered kill-chain phases + the lexical cues that map a tool into one. These span
+# both web pentest AND red-team engagements (the offensive chain is the same shape);
+# `post` covers post-exploitation / red-team tradecraft. A tool can match several;
+# assign_phase picks the earliest strong match, else "general".
 PHASES: dict[str, list[str]] = {
     "recon": ["recon", "sitemap", "crawl", "spider", "endpoint", "subfinder", "amass",
-              "discover", "wayback", "gau", "katana", "tech", "fingerprint", "enumerate"],
+              "discover", "wayback", "gau", "katana", "tech", "fingerprint", "enumerate",
+              "osint", "footprint", "asset", "dns", "whois"],
     "scan": ["scan", "nuclei", "audit", "matcher", "probe", "detect", "nikto", "wafw00f",
-             "passive", "wpscan", "secrets", "gitleaks", "trufflehog", "opengrep", "sast"],
+             "passive", "wpscan", "secrets", "gitleaks", "trufflehog", "opengrep", "sast",
+             "portscan", "nmap", "service", "version"],
     "exploit": ["exploit", "sqli", "sqlmap", "xss", "dalfox", "ssrf", "ssti", "xxe", "rce",
                 "csrf", "commix", "injection", "payload", "intruder", "jwt", "forge",
-                "bypass", "poison", "prototype", "websocket", "collaborator", "oob"],
+                "bypass", "poison", "prototype", "websocket", "collaborator", "oob",
+                "shellcode", "metasploit", "cve", "deserialization"],
+    # post-exploitation / red-team tradecraft
     "post": ["session", "cookie", "auth", "privilege", "idor", "access", "token",
-             "lifecycle", "mfa", "reset", "escalat"],
+             "lifecycle", "mfa", "reset", "escalat", "privesc", "lateral", "movement",
+             "pivot", "persistence", "beacon", "implant", "c2", "command", "control",
+             "exfil", "exfiltrate", "credential", "dump", "kerberos", "mimikatz",
+             "evasion", "evade", "opsec", "backdoor", "adversary", "ttp", "mitre"],
     "report": ["report", "finding", "save", "assess", "sarif", "junit", "export",
                "poc", "repro", "compliance", "severity"],
 }

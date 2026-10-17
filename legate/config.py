@@ -32,19 +32,32 @@ class Config:
     work_root: Path
     model_path: Path | None = None
     goose_mode: str = "auto"
+    # Coding uses `model`; security work routes to `security_model` — typically an
+    # UNCENSORED model (e.g. gemma4-obliterated) so offensive/creative pentest tasks
+    # aren't refused at the weight level. Both are served by name off `endpoint`
+    # (the llama-server router swaps them on a single GPU); override the endpoint
+    # only if you serve the security model separately.
+    security_model: str = "qwen3-coder"
+    security_endpoint: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
         repo_root = Path(os.environ.get("LEGATE_REPO_ROOT", Path.cwd()))
         work_root = Path(os.environ.get("LEGATE_WORK_ROOT", repo_root / ".legate" / "work"))
         model_path = os.environ.get("LEGATE_MODEL_PATH")
+        endpoint = os.environ.get("LEGATE_ENDPOINT", "http://127.0.0.1:8080/v1")
+        model = os.environ.get("LEGATE_MODEL", "qwen3-coder")
         return cls(
-            endpoint=os.environ.get("LEGATE_ENDPOINT", "http://127.0.0.1:8080/v1"),
-            model=os.environ.get("LEGATE_MODEL", "qwen3-coder"),
+            endpoint=endpoint,
+            model=model,
             repo_root=repo_root,
             work_root=work_root,
             model_path=Path(model_path) if model_path else None,
             goose_mode=os.environ.get("LEGATE_GOOSE_MODE", "auto"),
+            # default the security model to the coding model so nothing breaks until
+            # the user opts in by setting LEGATE_SECURITY_MODEL (e.g. gemma4-obliterated).
+            security_model=os.environ.get("LEGATE_SECURITY_MODEL", model),
+            security_endpoint=os.environ.get("LEGATE_SECURITY_ENDPOINT", endpoint),
         )
 
     # Back-compat alias: reads env (with defaults) — same result when no LEGATE_* set.

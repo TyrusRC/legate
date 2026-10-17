@@ -1,1 +1,0 @@
-{"id": "python/affine-cipher", "language": "python", "test_cmd": ["python", "-m", "pytest", "-q", "affine_cipher_test.py"], "protect": ["affine_cipher_test.py"]}

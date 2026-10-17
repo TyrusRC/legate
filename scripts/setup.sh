@@ -37,7 +37,6 @@ if command -v uv >/dev/null; then ok "uv $(uv --version 2>&1 | awk '{print $2}')
 else warn "uv missing — install: curl -LsSf https://astral.sh/uv/install.sh | sh"; MISS=1; fi
 command -v git >/dev/null && ok "git" || { warn "git missing"; MISS=1; }
 command -v goose >/dev/null && ok "goose" || warn "goose CLI not found — needed to run solves (https://github.com/block/goose)"
-command -v bwrap >/dev/null && ok "bwrap (sandbox)" || warn "bwrap not found — sandboxed test runs will fail closed (apt install bubblewrap)"
 command -v nvidia-smi >/dev/null && ok "nvidia-smi" || warn "nvidia-smi not found — GPU serving unavailable"
 [ "${MISS:-0}" = 1 ] && { warn "install the missing required tools above, then re-run"; exit 1; }
 
@@ -83,4 +82,4 @@ grep -q '^LEGATE_PRAETOR_CMD=' "$ENV" 2>/dev/null && [ -n "$(current_val LEGATE_
 say "Setup complete. Detected hardware:"
 uv run legate doctor || true
 echo
-say "Next: 'bash scripts/serve.sh &' to serve, then 'uv run legate solve problems/wordy'"
+say "Next: 'bash scripts/serve.sh &' to serve, then 'uv run legate' to open the agent"

@@ -47,14 +47,17 @@ def select_praetor_tools(router: Router, phase: str, query: str | None,
     return [t.name for t in router.select(phase=phase, query=query, cap=cap)]
 
 
-def build_dev_recipe(prompt: str, tools: list[str] | None = None) -> dict:
+def build_dev_recipe(prompt: str, tools: list[str] | None = None,
+                     instructions: str = LEGATE_INSTRUCTIONS) -> dict:
     """A developer-editor-only recipe carrying the task as its prompt. Goose
-    forbids `--recipe` with `--text`, so the task must ride inside the recipe."""
+    forbids `--recipe` with `--text`, so the task must ride inside the recipe.
+    `instructions` is the system block (identity + steering); the task itself
+    stays clean in `prompt` rather than being glued onto the steering text."""
     return {
         "version": "1.0.0",
         "title": "legate-dev",
         "description": "Developer editor only.",
-        "instructions": LEGATE_INSTRUCTIONS,
+        "instructions": instructions,
         "extensions": [
             {"type": "builtin", "name": "developer",
              "available_tools": tools or DEVELOPER_TOOLS},
@@ -65,7 +68,8 @@ def build_dev_recipe(prompt: str, tools: list[str] | None = None) -> dict:
 
 def build_recipe(praetor_cmd: str, praetor_args: list[str], phase: str,
                  tools: list[str], praetor_cwd: str | None = None,
-                 timeout: int = 300, prompt: str | None = None) -> dict:
+                 timeout: int = 300, prompt: str | None = None,
+                 instructions: str = LEGATE_INSTRUCTIONS) -> dict:
     ext = [
         {"type": "builtin", "name": "developer", "available_tools": DEVELOPER_TOOLS},
         {"type": "stdio", "name": "praetor", "cmd": praetor_cmd,
@@ -77,7 +81,7 @@ def build_recipe(praetor_cmd: str, praetor_args: list[str], phase: str,
         "version": "1.0.0",
         "title": f"legate-praetor-{phase}",
         "description": f"Phase '{phase}': developer editor + {len(tools)} Praetor tools.",
-        "instructions": LEGATE_INSTRUCTIONS,
+        "instructions": instructions,
         "extensions": ext,
     }
     if prompt:

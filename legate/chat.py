@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -58,6 +59,18 @@ def classify_request(text: str) -> tuple[str, str, str]:
         if hits > best_hits:
             best, best_hits = phase, hits
     return "security", best, text
+
+
+def route(text: str, mode: str | None = None) -> tuple[str, str]:
+    """(kind, phase) for a request, honouring a REPL `/mode` override. mode None =
+    auto (classify); 'coding' forces the dev editor; 'security' forces an engagement
+    (keeping any phase the text implies, else recon)."""
+    if mode == "coding":
+        return "dev", ""
+    kind, phase, _ = classify_request(text)
+    if mode == "security":
+        return "security", (phase or "recon")
+    return kind, phase
 
 
 # Pure conversational inputs (whole-message match) get a direct, tool-less reply —
@@ -122,12 +135,21 @@ def _clip(s: str, n: int = 200) -> str:
     return s if len(s) <= n else s[:n] + "…"
 
 
+def _ctx_limit() -> int:
+    """The served context window, used to warn before a session overflows it."""
+    try:
+        return int(os.environ.get("LEGATE_CTX", "32768"))
+    except ValueError:
+        return 32768
+
+
 def make_renderer():
     """A stateful printer for Goose stream-json events. Assistant text tokens
     (Goose emits one event per token) print inline; tool calls, results, errors
     and the final token tally each start on their own line. Returns a callable
     suitable for goose.run_recipe(on_event=...)."""
     import sys
+    ctx = _ctx_limit()
     mid_line = False  # currently in the middle of an inline assistant sentence
 
     def nl():
@@ -143,7 +165,11 @@ def make_renderer():
             nl(); print(f"  ✗ {_clip(evt.get('error', 'error'), 300)}")
             return
         if etype == "complete":
-            nl(); print(f"  · {evt.get('total_tokens', 0)} tokens")
+            total = evt.get("total_tokens", 0)
+            nl(); print(f"  · {total} tokens")
+            if total >= int(ctx * 0.85):  # near the window → context will start to truncate
+                print(f"  ⚠ nearing the {ctx}-token context window; start a fresh "
+                      f"session (/exit, rerun — or /mode toggles a new segment) to avoid truncation")
             return
         if etype != "message":
             return
@@ -173,26 +199,74 @@ def make_renderer():
     return emit
 
 
+def _session_logger(workdir: str, session: str | None, on_event):
+    """Wrap `on_event` so every stream-json event is also appended, verbatim, to a
+    per-session JSONL under <workdir>/.legate/sessions/ — an audit trail of the run
+    (what the model said, every tool call and result), which matters for authorized
+    security work and for debugging runaway turns. Returns (wrapped_on_event, fh);
+    logging never fails the run — a log error is swallowed and the run continues."""
+    import json
+    name = session or time.strftime("legate-%Y%m%d-%H%M%S")
+    logdir = os.path.join(workdir or ".", ".legate", "sessions")
+    try:
+        os.makedirs(logdir, exist_ok=True)
+        fh = open(os.path.join(logdir, f"{name}.jsonl"), "a", encoding="utf-8")
+    except OSError:
+        return on_event, None  # can't open the log → run without it
+
+    def wrapped(evt: dict) -> None:
+        try:
+            fh.write(json.dumps(evt, ensure_ascii=False) + "\n"); fh.flush()
+        except Exception:
+            pass
+        if on_event is not None:
+            on_event(evt)
+
+    return wrapped, fh
+
+
 # Steers a small model on a live engagement: use the routed tools, but fall back
 # to the shell when a tool errors or needs a backend that isn't up — and stop
-# looping. Without this the model hammers a broken tool for dozens of turns.
-_SECURITY_PREAMBLE = (
-    "You are doing authorized security work (pentest, red team, or another "
-    "cybersecurity task on a sanctioned target/scope). Use the mounted Praetor "
-    "tools for the task. If a tool errors or reports that a backend (e.g. Burp) or "
-    "binary is unavailable, DO NOT retry it — fall back to the shell tool with "
-    "standard CLI tooling (curl, httpx, gobuster, ffuf, nmap, and the like). After "
-    "you have gathered results, write them to findings.md and give a short summary, "
-    "then stop. Do not repeat a tool call that already failed.\n\nTask: "
+# looping. Without this the model hammers a broken tool for dozens of turns. This
+# is a SYSTEM-instructions block (appended to LEGATE_INSTRUCTIONS in the recipe),
+# not glued onto the task — the user's request stays clean in the recipe prompt.
+_SECURITY_STEER = (
+    "This is authorized security work (pentest, red team, or another cybersecurity "
+    "task on a sanctioned target/scope). Use the mounted Praetor tools for the task. "
+    "If a tool errors or reports that a backend (e.g. Burp) or binary is unavailable, "
+    "DO NOT retry it — fall back to the shell tool with standard CLI tooling (curl, "
+    "httpx, gobuster, ffuf, nmap, and the like); this is how you reach a capability "
+    "outside the mounted tool set. After you have gathered results, write them to "
+    "findings.md and give a short summary, then stop. Do not repeat a tool call that "
+    "already failed."
 )
 
 
+def _security_instructions() -> str:
+    from legate.recipe import LEGATE_INSTRUCTIONS
+    return LEGATE_INSTRUCTIONS + "\n\n" + _SECURITY_STEER
+
+
+def _coding_instructions(workdir: str) -> str:
+    """Base identity/steering plus a compact repo map of `workdir`, when it has
+    Python to map — so the coding path starts with the codebase skeleton."""
+    from legate.recipe import LEGATE_INSTRUCTIONS
+    from legate.repomap import build_repo_map
+    rmap = build_repo_map(workdir)
+    if not rmap:
+        return LEGATE_INSTRUCTIONS
+    return (LEGATE_INSTRUCTIONS + "\n\nRepo map (symbols only — open a file for its "
+            "full contents):\n" + rmap)
+
+
 def handle(cfg, text: str, workdir: str, max_turns: int = 20, stream: bool = False,
-           session: str | None = None, resume: bool = False, renderer=None) -> str:
+           session: str | None = None, resume: bool = False, renderer=None,
+           mode: str | None = None) -> str:
     """Route one request and drive it. With `stream`, events render live via a
     renderer and the return value is a compact status line (the body already
     printed). Pass `renderer` (an event callback) to override the default plain-text
-    one — the TUI passes a rich renderer. `session`/`resume` carry context."""
+    one — the TUI passes a rich renderer. `session`/`resume` carry context. `mode`
+    ('coding'/'security'/None) forces the route past the auto-classifier."""
     from legate.goose import run_goose
 
     if not server_up(cfg):
@@ -201,50 +275,68 @@ def handle(cfg, text: str, workdir: str, max_turns: int = 20, stream: bool = Fal
                 f"then try again. (nothing was run)]")
 
     # Fast-path: a greeting or trivial question gets a direct tool-less reply.
-    if _is_smalltalk(text):
+    if _is_smalltalk(text) and mode is None:
         try:
             return _direct_reply(cfg, text)
         except Exception:
             pass  # fall through to the full agent if the direct call fails
 
     on_event = (renderer or make_renderer()) if stream else None
-    kind, phase, query = classify_request(text)
-    if kind == "security":
-        # Security work runs on the (typically uncensored) security model.
-        scfg = replace(cfg, model=cfg.security_model, endpoint=cfg.security_endpoint)
-        cmd, args, cwd = _praetor_env()
-        if cmd:  # Praetor configured → mount its phase tools + engage
-            from legate.pentest import run_engagement
-            plan, result = run_engagement(scfg, cmd, args, phase=phase,
-                                          task=_SECURITY_PREAMBLE + text, query=query,
-                                          praetor_cwd=cwd, workdir=workdir,
-                                          max_turns=max_turns, on_event=on_event,
-                                          session=session, resume=resume)
-            head = (f"[security · {scfg.model} · phase={phase} · "
-                    f"{len(plan.selected_tools)}/{plan.total_tools} Praetor tools]")
-        else:  # no Praetor → still run on the uncensored model with the shell/editor
-            result = run_goose(scfg, Path(workdir), _SECURITY_PREAMBLE + text,
-                               max_turns=max_turns, on_event=on_event,
-                               session=session, resume=resume)
-            head = f"[security · {scfg.model} · shell (Praetor not configured)]"
+    # Tee every event to a per-session audit log (best-effort); close it after.
+    log_fh = None
+    if on_event is not None:
+        on_event, log_fh = _session_logger(workdir, session, on_event)
+    kind, phase = route(text, mode)
+    query = text
+    try:
+        if kind == "security":
+            # Security work runs on the (typically uncensored) security model, with the
+            # security steering carried in the recipe's system instructions (not the task).
+            scfg = replace(cfg, model=cfg.security_model, endpoint=cfg.security_endpoint)
+            sec_instr = _security_instructions()
+            cmd, args, cwd = _praetor_env()
+            if cmd:  # Praetor configured → mount its phase tools + engage
+                from legate.pentest import run_engagement
+                plan, result = run_engagement(scfg, cmd, args, phase=phase,
+                                              task=text, query=query,
+                                              praetor_cwd=cwd, workdir=workdir,
+                                              max_turns=max_turns, on_event=on_event,
+                                              session=session, resume=resume,
+                                              instructions=sec_instr)
+                head = (f"[security · {scfg.model} · phase={phase} · "
+                        f"{len(plan.selected_tools)}/{plan.total_tools} Praetor tools]")
+            else:  # no Praetor → still run on the uncensored model with the shell/editor
+                result = run_goose(scfg, Path(workdir), text,
+                                   max_turns=max_turns, on_event=on_event,
+                                   session=session, resume=resume, instructions=sec_instr)
+                head = f"[security · {scfg.model} · shell (Praetor not configured)]"
+            if stream:
+                return head + (f"  [error: {result.error}]" if result.error else "")
+            body = result.final_text or "(no text output)"
+            return f"{head}\n{body}" + (f"\n[error: {result.error}]" if result.error else "")
+        # coding — prepend a compact repo map so a short-context model knows the
+        # codebase shape without reading every file first.
+        result = run_goose(cfg, Path(workdir), text, max_turns=max_turns, on_event=on_event,
+                           session=session, resume=resume,
+                           instructions=_coding_instructions(workdir))
         if stream:
-            return head + (f"  [error: {result.error}]" if result.error else "")
+            return "[coding done]" + (f"  [error: {result.error}]" if result.error else "")
         body = result.final_text or "(no text output)"
-        return f"{head}\n{body}" + (f"\n[error: {result.error}]" if result.error else "")
-    # coding
-    result = run_goose(cfg, Path(workdir), text, max_turns=max_turns, on_event=on_event,
-                       session=session, resume=resume)
-    if stream:
-        return "[coding done]" + (f"  [error: {result.error}]" if result.error else "")
-    body = result.final_text or "(no text output)"
-    return f"[coding]\n{body}" + (f"\n[error: {result.error}]" if result.error else "")
+        return f"[coding]\n{body}" + (f"\n[error: {result.error}]" if result.error else "")
+    finally:
+        if log_fh is not None:
+            try:
+                log_fh.close()
+            except Exception:
+                pass
 
 
 _HELP = (
     "  just type a request — coding or a security task; it auto-routes\n"
-    "  /cwd <dir>   set the working directory\n"
-    "  /help        this help\n"
-    "  /exit        quit  (or ctrl-d)\n"
+    "  /cwd <dir>              set the working directory\n"
+    "  /mode auto|coding|security   force the route (default: auto)\n"
+    "  /help                   this help\n"
+    "  /exit                   quit  (or ctrl-d)\n"
     "  copy/paste works normally — this is your terminal's own scrollback"
 )
 
@@ -257,6 +349,7 @@ def chat_loop(cfg, workdir: str | None = None, max_turns: int = 20) -> int:
     base = f"legate-{os.getpid()}"
     prev_tag: str | None = None
     seg = 0
+    mode: str | None = None  # None = auto; else forced 'coding'/'security' via /mode
     print(f"legate · {cfg.model} · local")
     print(f"{cwd}   (/help, /exit)")
     while True:
@@ -280,7 +373,16 @@ def chat_loop(cfg, workdir: str | None = None, max_turns: int = 20) -> int:
             else:
                 print(f"not a directory: {cand}")
             continue
-        kind, phase, _ = classify_request(line)
+        if line == "/mode" or line.startswith("/mode "):
+            arg = line[5:].strip().lower()
+            if arg in ("", "auto"):
+                mode = None; print("mode: auto")
+            elif arg in ("coding", "security"):
+                mode = arg; print(f"mode: {arg}")
+            else:
+                print("usage: /mode auto|coding|security")
+            continue
+        kind, phase = route(line, mode)
         tag = f"security/{phase}" if kind == "security" else "coding"
         print(f"→ {tag}")
         # A Goose session binds its mounted tool set at init, so --resume keeps the
@@ -293,7 +395,7 @@ def chat_loop(cfg, workdir: str | None = None, max_turns: int = 20) -> int:
         session = f"{base}-{seg}"
         try:
             print(handle(cfg, line, cwd, max_turns=max_turns, stream=True,
-                         session=session, resume=resume))
+                         session=session, resume=resume, mode=mode))
         except Exception as e:  # keep the REPL alive on a single failed turn
             print(f"[turn failed: {type(e).__name__}: {e}]")
         prev_tag = tag

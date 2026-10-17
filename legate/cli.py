@@ -40,8 +40,9 @@ def cmd_models_recommend() -> int:
     return 0
 
 
-def main() -> int:
-    load_dotenv(Path.cwd() / ".env")
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI's argument parser. Factored out so tests exercise the real parser
+    (not a hand-rebuilt copy that can silently drift from this one)."""
     ap = argparse.ArgumentParser(
         prog="legate",
         description="Local agent for coding and cybersecurity work. Bare `legate` opens "
@@ -60,8 +61,12 @@ def main() -> int:
     mp = sub.add_parser("models", help="Curated local-model catalog")
     msub = mp.add_subparsers(dest="models_cmd", required=True)
     msub.add_parser("recommend", help="Rank models by fit for this machine")
+    return ap
 
-    args = ap.parse_args()
+
+def main() -> int:
+    load_dotenv(Path.cwd() / ".env")
+    args = build_parser().parse_args()
 
     if args.cmd == "doctor":
         return cmd_doctor()

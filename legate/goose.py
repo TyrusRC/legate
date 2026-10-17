@@ -7,7 +7,7 @@ from pathlib import Path
 
 from legate.config import Config
 from legate.goose_output import GooseResult, parse_stream_json
-from legate.recipe import build_dev_recipe, render_recipe
+from legate.recipe import LEGATE_INSTRUCTIONS, build_dev_recipe, render_recipe
 
 
 def build_goose_argv(cfg: Config, recipe_path: Path | str, max_turns: int,
@@ -127,8 +127,11 @@ def _timeout_result(lines: list[str], timeout: float) -> GooseResult:
 
 def run_goose(cfg: Config, cwd: Path, task_text: str, max_turns: int = 30,
               tools: list[str] | None = None, on_event=None,
-              session: str | None = None, resume: bool = False) -> GooseResult:
+              session: str | None = None, resume: bool = False,
+              instructions: str = LEGATE_INSTRUCTIONS) -> GooseResult:
     """Run Goose headless on a developer-editor recipe carrying `task_text` as its
-    prompt and the tool allowlist (`tools`, default: edit/write/shell)."""
-    return run_recipe(cfg, cwd, render_recipe(build_dev_recipe(task_text, tools)),
+    prompt and the tool allowlist (`tools`, default: edit/write/shell). `instructions`
+    is the system block — callers override it to steer security work."""
+    return run_recipe(cfg, cwd,
+                      render_recipe(build_dev_recipe(task_text, tools, instructions)),
                       max_turns, on_event=on_event, session=session, resume=resume)

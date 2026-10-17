@@ -77,7 +77,7 @@ def test_real_task_is_not_smalltalk():
     assert _is_smalltalk("Hello!") and _is_smalltalk("who are you?")
 
 
-def test_security_routes_to_security_model(monkeypatch):
+def test_security_routes_to_security_model(monkeypatch, tmp_path):
     # Security work must use cfg.security_model (e.g. an uncensored gemma), not the
     # coding model. Verify handle() passes the security model to the runner.
     import legate.chat as c
@@ -87,13 +87,41 @@ def test_security_routes_to_security_model(monkeypatch):
     monkeypatch.setattr(c, "server_up", lambda cfg, timeout=3.0: True)
     monkeypatch.setattr(c, "_praetor_env", lambda: (None, [], None))  # no Praetor → shell path
     seen = {}
-    def fake_run_goose(scfg, cwd, task, max_turns=30, on_event=None, session=None, resume=False):
+    def fake_run_goose(scfg, cwd, task, max_turns=30, on_event=None, session=None,
+                       resume=False, instructions=None):
         seen["model"] = scfg.model
+        seen["instructions"] = instructions
+        seen["task"] = task
         from legate.goose_output import GooseResult
         return GooseResult(total_tokens=1)
     monkeypatch.setattr(c, "run_goose", fake_run_goose, raising=False)
     import legate.goose as g
     monkeypatch.setattr(g, "run_goose", fake_run_goose)
-    out = c.handle(cfg, "exploit sqli on 10.0.0.5", "/tmp", stream=True)
+    out = c.handle(cfg, "exploit sqli on 10.0.0.5", str(tmp_path), stream=True)
     assert seen["model"] == "gemma4-obliterated", seen
     assert "security · gemma4-obliterated" in out
+    # security steering rides in the recipe instructions, and the task stays clean
+    assert "authorized security work" in (seen["instructions"] or "").lower()
+    assert seen["task"] == "exploit sqli on 10.0.0.5"
+
+
+def test_mode_override_forces_route():
+    from legate.chat import route
+    assert route("hello there", "security") == ("security", "recon")   # forced, default phase
+    assert route("scan 10.0.0.5 for vulnerabilities", "coding") == ("dev", "")
+    assert route("fix the parser", None)[0] == "dev"                   # auto = classifier
+    assert route("sql injection on http://t/", None)[0] == "security"
+
+
+def test_session_logger_writes_jsonl_and_still_forwards(tmp_path):
+    import json
+    from legate.chat import _session_logger
+    forwarded = []
+    wrapped, fh = _session_logger(str(tmp_path), "sess1", forwarded.append)
+    wrapped({"type": "message", "x": 1})
+    wrapped({"type": "complete", "total_tokens": 7})
+    fh.close()
+    log = tmp_path / ".legate" / "sessions" / "sess1.jsonl"
+    rows = [json.loads(l) for l in log.read_text().splitlines() if l]
+    assert [r.get("total_tokens") for r in rows][-1] == 7
+    assert forwarded == [{"type": "message", "x": 1}, {"type": "complete", "total_tokens": 7}]

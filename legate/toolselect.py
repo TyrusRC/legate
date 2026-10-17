@@ -143,8 +143,14 @@ class Router:
 
     def select(self, phase: str | None = None, query: str | None = None,
                cap: int = 15) -> list[Tool]:
-        """The surfaced working set: the phase group, topped up by BM25 hits for
-        `query` (cross-phase pivots), deduped and capped."""
+        """The surfaced working set, deduped and capped. When both a phase and a
+        query are given, roughly half the cap is reserved for cross-phase BM25 hits
+        and half for the phase group, so neither crowds the other out: the model
+        keeps solid coverage of the current phase AND can reach the query-relevant
+        tool even if it lives in another phase. With only one of them, that one
+        fills the cap. (This is as far as cross-phase reach goes without a live
+        search tool; mid-engagement pivots to an entirely new need still fall back
+        to the shell — see chat._SECURITY_STEER.)"""
         chosen: list[Tool] = []
         seen: set[str] = set()
 
@@ -153,10 +159,16 @@ class Router:
                 seen.add(t.name)
                 chosen.append(t)
 
-        if query:  # query-relevant hits first — they're what the step needs now
-            for t in self.search(query, k=cap):
+        q_hits = self.search(query, k=cap) if query else []
+        p_hits = self.phase_group(phase) if phase else []
+        if q_hits and p_hits:
+            for t in q_hits[:max(1, cap // 2)]:  # reserve ~half for cross-phase hits
                 add(t)
-        if phase:
-            for t in self.phase_group(phase):
+            for t in p_hits:                     # current-phase coverage
+                add(t)
+            for t in q_hits:                     # backfill leftover slots
+                add(t)
+        else:
+            for t in (q_hits or p_hits):
                 add(t)
         return chosen

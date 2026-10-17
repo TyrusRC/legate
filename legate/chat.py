@@ -108,15 +108,33 @@ def _direct_reply(cfg, text: str, timeout: float = 60.0) -> str:
     return data["choices"][0]["message"]["content"].strip()
 
 
+def _is_model_server_json(raw: bytes, is_models: bool) -> bool:
+    """Does this response body actually come from an OpenAI-compatible / llama
+    server, not just *something* answering the port? A bare HTTP 200 is not enough
+    — another service squatting the endpoint (e.g. a Burp proxy on :8080) also
+    answers 200, with HTML. `/v1/models` must be JSON with a "data" list; `/health`
+    must be JSON with a "status". HTML (or any non-JSON) fails."""
+    import json
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return ("data" in data) if is_models else ("status" in data)
+
+
 def server_up(cfg, timeout: float = 3.0) -> bool:
     """Quick reachability check for the local model server, so a request fails fast
-    with a clear message instead of the agent hanging on a dead endpoint."""
+    with a clear message instead of the agent hanging on a dead (or wrong) endpoint.
+    Validates the response shape, not just reachability — so a different service on
+    the port doesn't read as 'up' and send the agent into an empty-response loop."""
     import urllib.request
     host = cfg.endpoint.rsplit("/v1", 1)[0]
-    for url in (f"{host}/health", f"{cfg.endpoint}/models"):
+    for url, is_models in ((f"{cfg.endpoint}/models", True), (f"{host}/health", False)):
         try:
             with urllib.request.urlopen(url, timeout=timeout) as r:
-                if r.status < 500:
+                if _is_model_server_json(r.read(), is_models):
                     return True
         except Exception:
             continue

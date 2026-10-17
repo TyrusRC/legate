@@ -105,6 +105,20 @@ def test_security_routes_to_security_model(monkeypatch, tmp_path):
     assert seen["task"] == "exploit sqli on 10.0.0.5"
 
 
+def test_server_up_rejects_a_non_model_server_on_the_port():
+    # Regression: a Burp proxy (or anything) squatting the endpoint answers HTTP 200
+    # with HTML — that must NOT read as a live model server.
+    from legate.chat import _is_model_server_json
+    burp_html = b"<html><head><title>Burp Suite</title></head><body>Error</body></html>"
+    assert _is_model_server_json(burp_html, is_models=True) is False
+    assert _is_model_server_json(burp_html, is_models=False) is False
+    # Real shapes pass: OpenAI /v1/models and llama /health.
+    assert _is_model_server_json(b'{"object":"list","data":[{"id":"qwen3-coder"}]}', True) is True
+    assert _is_model_server_json(b'{"status":"ok"}', False) is True
+    # Right-JSON-wrong-endpoint doesn't pass (no "data" on the models probe).
+    assert _is_model_server_json(b'{"status":"ok"}', True) is False
+
+
 def test_mode_override_forces_route():
     from legate.chat import route
     assert route("hello there", "security") == ("security", "recon")   # forced, default phase
